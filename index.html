@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DerivedDataNuke — Xcode Cache Cleaner</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#241200;--bg-deep:#1A0D00;--gold:#DDC165;--gold-light:#FFE9A3;
+    --orange:#E5591C;--orange-glow:rgba(229,89,28,.4);
+    --gold-glow:rgba(221,193,101,.3);--text:#e8d5b8;--text-dim:#8a7560;
+    --panel:rgba(36,18,0,.85);--border:rgba(221,193,101,.15);
+  }
+  html{font-size:16px}
+  body{
+    background:var(--bg-deep);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif;
+    min-height:100vh;overflow-x:hidden;
+  }
+
+  /* Canvas background */
+  #bg-canvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none}
+
+  /* Layout */
+  .container{
+    position:relative;z-index:1;max-width:720px;margin:0 auto;
+    padding:3rem 1.5rem 4rem;
+  }
+
+  /* Header */
+  .header{text-align:center;margin-bottom:3rem}
+  .icon-wrap{
+    width:120px;height:120px;margin:0 auto 1.5rem;
+    position:relative;display:flex;align-items:center;justify-content:center;
+  }
+  .icon-wrap::before{
+    content:'';position:absolute;inset:-8px;border-radius:50%;
+    background:conic-gradient(from 0deg,var(--orange),var(--gold),var(--orange));
+    opacity:.25;animation:spin 8s linear infinite;
+  }
+  .icon-wrap::after{
+    content:'';position:absolute;inset:0;border-radius:50%;
+    background:radial-gradient(circle,var(--bg) 40%,transparent 70%);
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .icon-svg{position:relative;z-index:1;width:72px;height:72px}
+
+  h1{
+    font-size:2.2rem;font-weight:700;letter-spacing:-.02em;
+    background:linear-gradient(135deg,var(--gold-light),var(--gold),var(--orange));
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+    background-clip:text;margin-bottom:.5rem;
+  }
+  .subtitle{color:var(--text-dim);font-size:1rem;line-height:1.5}
+
+  /* Stats bar */
+  .stats{
+    display:flex;gap:1rem;justify-content:center;margin:2rem 0;flex-wrap:wrap;
+  }
+  .stat{
+    background:var(--panel);border:1px solid var(--border);border-radius:12px;
+    padding:.75rem 1.25rem;min-width:140px;text-align:center;
+    backdrop-filter:blur(8px);
+  }
+  .stat-val{
+    font-size:1.5rem;font-weight:700;color:var(--gold);
+    font-variant-numeric:tabular-nums;
+  }
+  .stat-label{font-size:.75rem;color:var(--text-dim);margin-top:.15rem;text-transform:uppercase;letter-spacing:.06em}
+
+  /* Nuke button */
+  .nuke-section{text-align:center;margin:2.5rem 0}
+  .nuke-btn{
+    position:relative;display:inline-flex;align-items:center;gap:.6rem;
+    background:linear-gradient(135deg,var(--orange),#c44a15);
+    color:#fff;font-size:1.1rem;font-weight:600;
+    padding:1rem 2.5rem;border:none;border-radius:14px;cursor:pointer;
+    box-shadow:0 0 30px var(--orange-glow),0 4px 20px rgba(0,0,0,.5);
+    transition:all .2s;overflow:hidden;
+  }
+  .nuke-btn:hover{
+    transform:translateY(-2px);
+    box-shadow:0 0 50px var(--orange-glow),0 8px 30px rgba(0,0,0,.5);
+  }
+  .nuke-btn:active{transform:translateY(0)}
+  .nuke-btn.nuking{
+    background:linear-gradient(135deg,var(--gold),var(--orange));
+    pointer-events:none;
+  }
+  .nuke-btn .ripple{
+    position:absolute;border-radius:50%;background:rgba(255,255,255,.3);
+    transform:scale(0);animation:ripple .6s ease-out;
+  }
+  @keyframes ripple{to{transform:scale(4);opacity:0}}
+
+  /* Command blocks */
+  .section{margin:2.5rem 0}
+  .section-title{
+    font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;
+    color:var(--gold);margin-bottom:1rem;font-weight:600;
+  }
+  .cmd-block{
+    background:var(--panel);border:1px solid var(--border);border-radius:12px;
+    padding:1rem 1.25rem;font-family:'SF Mono','Fira Code',monospace;
+    font-size:.85rem;line-height:1.6;position:relative;
+    backdrop-filter:blur(8px);overflow-x:auto;
+  }
+  .cmd-block code{color:var(--gold-light);white-space:pre}
+  .cmd-block .comment{color:var(--text-dim)}
+  .copy-btn{
+    position:absolute;top:.6rem;right:.6rem;background:rgba(221,193,101,.1);
+    border:1px solid var(--border);border-radius:8px;padding:.35rem .7rem;
+    color:var(--gold);font-size:.7rem;cursor:pointer;transition:all .2s;
+    font-family:inherit;text-transform:uppercase;letter-spacing:.05em;
+  }
+  .copy-btn:hover{background:rgba(221,193,101,.2)}
+  .copy-btn.copied{background:rgba(229,89,28,.2);color:var(--orange);border-color:var(--orange)}
+
+  /* Cards */
+  .card-grid{display:grid;gap:1rem;grid-template-columns:1fr 1fr}
+  @media(max-width:540px){.card-grid{grid-template-columns:1fr}}
+  .card{
+    background:var(--panel);border:1px solid var(--border);border-radius:12px;
+    padding:1.25rem;backdrop-filter:blur(8px);transition:border-color .2s;
+  }
+  .card:hover{border-color:rgba(221,193,101,.3)}
+  .card h3{font-size:.95rem;color:var(--gold);margin-bottom:.4rem}
+  .card p{font-size:.82rem;color:var(--text-dim);line-height:1.5}
+
+  /* Script download */
+  .download-btn{
+    display:inline-flex;align-items:center;gap:.5rem;
+    background:rgba(221,193,101,.08);border:1px solid var(--border);
+    border-radius:10px;padding:.7rem 1.5rem;color:var(--gold);
+    font-size:.9rem;cursor:pointer;transition:all .2s;
+    text-decoration:none;font-family:inherit;
+  }
+  .download-btn:hover{background:rgba(221,193,101,.15);border-color:var(--gold)}
+  .download-btn svg{width:18px;height:18px}
+
+  /* Toast */
+  .toast{
+    position:fixed;bottom:2rem;left:50%;transform:translateX(-50%) translateY(100px);
+    background:var(--panel);border:1px solid var(--border);border-radius:10px;
+    padding:.7rem 1.5rem;color:var(--gold);font-size:.85rem;
+    backdrop-filter:blur(12px);z-index:100;transition:transform .3s ease;
+    box-shadow:0 8px 30px rgba(0,0,0,.5);
+  }
+  .toast.show{transform:translateX(-50%) translateY(0)}
+
+  /* Nuke count */
+  .nuke-count{
+    font-size:.8rem;color:var(--text-dim);margin-top:.75rem;
+  }
+  .nuke-count span{color:var(--orange);font-weight:600}
+
+  /* Footer */
+  .footer{
+    text-align:center;margin-top:4rem;padding-top:2rem;
+    border-top:1px solid var(--border);
+  }
+  .footer p{font-size:.75rem;color:var(--text-dim)}
+  .footer a{color:var(--gold);text-decoration:none}
+  .footer a:hover{text-decoration:underline}
+
+  /* Flash overlay for nuke */
+  .flash{
+    position:fixed;inset:0;background:var(--orange);z-index:50;
+    pointer-events:none;opacity:0;
+  }
+  .flash.active{animation:flash-anim .6s ease-out}
+  @keyframes flash-anim{0%{opacity:.6}100%{opacity:0}}
+
+  /* Scan animation on size */
+  @keyframes pulse-glow{
+    0%,100%{text-shadow:0 0 8px var(--orange-glow)}
+    50%{text-shadow:0 0 20px var(--orange-glow),0 0 40px rgba(229,89,28,.2)}
+  }
+  .scanning .stat-val{animation:pulse-glow 1s ease-in-out infinite}
+</style>
+</head>
+<body>
+<canvas id="bg-canvas"></canvas>
+<div class="flash" id="flash"></div>
+<div class="container">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="icon-wrap">
+      <svg class="icon-svg" viewBox="0 0 72 72" fill="none">
+        <circle cx="36" cy="36" r="28" stroke="#DDC165" stroke-width="2" opacity=".3"/>
+        <circle cx="36" cy="36" r="18" stroke="#E5591C" stroke-width="2" opacity=".5"/>
+        <circle cx="36" cy="36" r="8" fill="#E5591C" opacity=".8"/>
+        <path d="M36 8v56M8 36h56" stroke="#DDC165" stroke-width="1" opacity=".2"/>
+        <path d="M15.5 15.5l41 41M56.5 15.5l-41 41" stroke="#DDC165" stroke-width="1" opacity=".1"/>
+      </svg>
+    </div>
+    <h1>DerivedDataNuke</h1>
+    <p class="subtitle">Obliterate Xcode's DerivedData cache.<br>Because SwiftUI Previews deserve a clean slate.</p>
+  </header>
+
+  <!-- Stats -->
+  <div class="stats scanning" id="stats">
+    <div class="stat">
+      <div class="stat-val" id="size-val">—</div>
+      <div class="stat-label">DerivedData Size</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" id="projects-val">—</div>
+      <div class="stat-label">Cached Projects</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" id="oldest-val">—</div>
+      <div class="stat-label">Oldest Cache</div>
+    </div>
+  </div>
+
+  <!-- Nuke Button -->
+  <div class="nuke-section">
+    <button class="nuke-btn" id="nuke-btn" onclick="handleNuke()">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="10"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="3"/>
+      </svg>
+      Copy Nuke Command
+    </button>
+    <div class="nuke-count" id="nuke-count"></div>
+  </div>
+
+  <!-- Quick Commands -->
+  <div class="section">
+    <div class="section-title">Quick Commands</div>
+
+    <div style="display:flex;flex-direction:column;gap:1rem">
+      <div class="cmd-block" id="cmd-nuke-all">
+        <button class="copy-btn" onclick="copyCmd(this,'nuke-all')">Copy</button>
+        <code><span class="comment"># Nuke ALL DerivedData</span>
+rm -rf ~/Library/Developer/Xcode/DerivedData/*</code>
+      </div>
+
+      <div class="cmd-block" id="cmd-preview-only">
+        <button class="copy-btn" onclick="copyCmd(this,'preview-only')">Copy</button>
+        <code><span class="comment"># Nuke preview caches only</span>
+find ~/Library/Developer/Xcode/DerivedData \
+  -path "*/Build/Intermediates.noindex/Previews" \
+  -type d -exec rm -rf {} + 2>/dev/null</code>
+      </div>
+
+      <div class="cmd-block" id="cmd-stale">
+        <button class="copy-btn" onclick="copyCmd(this,'stale')">Copy</button>
+        <code><span class="comment"># Nuke caches older than 7 days</span>
+find ~/Library/Developer/Xcode/DerivedData \
+  -maxdepth 1 -mindepth 1 -type d \
+  -mtime +7 -exec rm -rf {} +</code>
+      </div>
+    </div>
+  </div>
+
+  <!-- What Gets Nuked -->
+  <div class="section">
+    <div class="section-title">What Gets Nuked</div>
+    <div class="card-grid">
+      <div class="card">
+        <h3>Build Products</h3>
+        <p>Compiled binaries, object files, and linked frameworks. Xcode rebuilds these on next compile.</p>
+      </div>
+      <div class="card">
+        <h3>Preview Caches</h3>
+        <p>SwiftUI preview artifacts that accumulate and go stale, causing the dreaded "Preview Failed" errors.</p>
+      </div>
+      <div class="card">
+        <h3>Index Data</h3>
+        <p>Source code indexes for autocomplete and navigation. Rebuilt automatically on next project open.</p>
+      </div>
+      <div class="card">
+        <h3>Module Caches</h3>
+        <p>Precompiled module maps and Swift module interfaces. Safe to delete — Xcode regenerates them.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Automation Script -->
+  <div class="section">
+    <div class="section-title">Automation</div>
+    <div class="card" style="text-align:center;padding:2rem">
+      <h3 style="margin-bottom:.75rem">Auto-Clean Shell Script</h3>
+      <p style="margin-bottom:1.25rem">Download a shell script that monitors DerivedData and auto-cleans stale caches. Run via launchd or cron for hands-free maintenance.</p>
+      <a class="download-btn" id="download-btn" onclick="downloadScript(event)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        deriveddatanuke.sh
+      </a>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <p>DerivedDataNuke &mdash; because <code>rm -rf ~/Library/Developer/Xcode/DerivedData</code> deserves a better UX.</p>
+  </footer>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// === Background Particles ===
+const canvas = document.getElementById('bg-canvas');
+const ctx = canvas.getContext('2d');
+let particles = [];
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+class Particle {
+  constructor(x, y, isNuke) {
+    this.x = x ?? Math.random() * W;
+    this.y = y ?? Math.random() * H;
+    this.vx = (Math.random() - 0.5) * (isNuke ? 4 : 0.3);
+    this.vy = (Math.random() - 0.5) * (isNuke ? 4 : 0.3) - (isNuke ? Math.random() * 3 : 0);
+    this.r = Math.random() * (isNuke ? 3 : 1.5) + 0.5;
+    this.life = isNuke ? 60 + Math.random() * 60 : 999;
+    this.maxLife = this.life;
+    this.isNuke = isNuke;
+    const colors = ['#DDC165', '#FFE9A3', '#E5591C'];
+    this.color = colors[Math.floor(Math.random() * (isNuke ? 3 : 2))];
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    if (this.isNuke) {
+      this.vy += 0.03;
+      this.life--;
+    } else {
+      this.vy += Math.sin(Date.now() * 0.001 + this.x * 0.01) * 0.002;
+      if (this.x < 0) this.x = W;
+      if (this.x > W) this.x = 0;
+      if (this.y < 0) this.y = H;
+      if (this.y > H) this.y = 0;
+    }
+  }
+  draw() {
+    const alpha = this.isNuke ? (this.life / this.maxLife) * 0.8 : 0.15 + Math.sin(Date.now() * 0.002 + this.x) * 0.1;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+    ctx.fillStyle = this.color;
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.fill();
+    if (this.isNuke && this.r > 1.5) {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r * 3, 0, Math.PI * 2);
+      ctx.fillStyle = this.color;
+      ctx.globalAlpha = Math.max(0, alpha * 0.15);
+      ctx.fill();
+    }
+  }
+}
+
+// Seed ambient particles
+for (let i = 0; i < 60; i++) particles.push(new Particle());
+
+function animate() {
+  ctx.clearRect(0, 0, W, H);
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => { p.update(); p.draw(); });
+  ctx.globalAlpha = 1;
+  requestAnimationFrame(animate);
+}
+animate();
+
+function spawnNukeParticles() {
+  const cx = W / 2, cy = H / 2;
+  for (let i = 0; i < 150; i++) {
+    particles.push(new Particle(cx + (Math.random() - 0.5) * 100, cy + (Math.random() - 0.5) * 100, true));
+  }
+}
+
+// === Simulated scan ===
+function simulateScan() {
+  const sizes = ['2.4 GB', '5.1 GB', '8.7 GB', '3.2 GB', '12.3 GB', '6.8 GB', '1.9 GB', '4.5 GB'];
+  const projects = [4, 7, 12, 3, 18, 9, 5, 8];
+  const ages = ['3 days', '12 days', '28 days', '5 days', '45 days', '2 weeks', '1 month', '9 days'];
+  const i = Math.floor(Math.random() * sizes.length);
+
+  setTimeout(() => {
+    document.getElementById('size-val').textContent = sizes[i];
+    document.getElementById('projects-val').textContent = projects[i];
+    document.getElementById('oldest-val').textContent = ages[i];
+    document.getElementById('stats').classList.remove('scanning');
+  }, 1200);
+}
+simulateScan();
+
+// === Commands ===
+const commands = {
+  'nuke-all': "rm -rf ~/Library/Developer/Xcode/DerivedData/*",
+  'preview-only': `find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Intermediates.noindex/Previews" -type d -exec rm -rf {} + 2>/dev/null`,
+  'stale': "find ~/Library/Developer/Xcode/DerivedData -maxdepth 1 -mindepth 1 -type d -mtime +7 -exec rm -rf {} +"
+};
+
+function copyCmd(btn, id) {
+  navigator.clipboard.writeText(commands[id]).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+// === Nuke button ===
+let nukeCount = parseInt(localStorage.getItem('deriveddatanuke_count') || '0');
+function updateNukeCount() {
+  const el = document.getElementById('nuke-count');
+  if (nukeCount > 0) {
+    el.innerHTML = `You've nuked DerivedData <span>${nukeCount}</span> time${nukeCount !== 1 ? 's' : ''} from this browser.`;
+  }
+}
+updateNukeCount();
+
+function handleNuke() {
+  const cmd = commands['nuke-all'];
+  navigator.clipboard.writeText(cmd).then(() => {
+    nukeCount++;
+    localStorage.setItem('deriveddatanuke_count', nukeCount);
+    updateNukeCount();
+
+    // Visual effects
+    const btn = document.getElementById('nuke-btn');
+    btn.classList.add('nuking');
+    btn.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-5"/></svg> Copied! Paste in Terminal';
+
+    const flash = document.getElementById('flash');
+    flash.classList.remove('active');
+    void flash.offsetWidth;
+    flash.classList.add('active');
+
+    spawnNukeParticles();
+    showToast('Command copied — paste in Terminal to nuke DerivedData');
+
+    // Simulate size clearing
+    setTimeout(() => {
+      document.getElementById('size-val').textContent = '0 B';
+      document.getElementById('projects-val').textContent = '0';
+      document.getElementById('oldest-val').textContent = '—';
+    }, 600);
+
+    setTimeout(() => {
+      btn.classList.remove('nuking');
+      btn.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="3"/></svg> Copy Nuke Command';
+      simulateScan();
+    }, 3000);
+  });
+}
+
+// === Toast ===
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// === Download script ===
+function downloadScript(e) {
+  e.preventDefault();
+  const script = `#!/bin/bash
+# DerivedDataNuke — Automated Xcode Cache Cleaner
+# https://github.com/ianhandy/DerivedDataNuke
+#
+# Usage:
+#   ./deriveddatanuke.sh              # Interactive mode
+#   ./deriveddatanuke.sh --nuke       # Nuke everything
+#   ./deriveddatanuke.sh --previews   # Preview caches only
+#   ./deriveddatanuke.sh --stale 7    # Caches older than N days
+#   ./deriveddatanuke.sh --watch      # Monitor mode (runs every 30 min)
+
+set -euo pipefail
+
+DD_PATH="\${HOME}/Library/Developer/Xcode/DerivedData"
+RED='\\033[0;31m'; GOLD='\\033[0;33m'; GREEN='\\033[0;32m'; DIM='\\033[2m'; NC='\\033[0m'
+
+banner() {
+  echo ""
+  echo -e "\${GOLD}  ____           _             _ ____        _        _   _       _        \${NC}"
+  echo -e "\${GOLD} |  _ \\\\ ___ _ __(_)_   _____  __| |  _ \\\\  __ _| |_ __ _| \\\\ | |_   _| | _____ \${NC}"
+  echo -e "\${GOLD} | | | / _ \\\\ '__| \\\\ \\\\ / / _ \\\\/ _\` | | | |/ _\` | __/ _\` |  \\\\| | | | | |/ / _ \\\\\${NC}"
+  echo -e "\${RED} | |_| |  __/ |  | |\\\\ V /  __/ (_| | |_| | (_| | || (_| | |\\\\  | |_| |   <  __/\${NC}"
+  echo -e "\${RED} |____/ \\\\___|_|  |_| \\\\_/ \\\\___|\\\\__,_|____/ \\\\__,_|\\\\__\\\\__,_|_| \\\\_|\\\\__,_|_|\\\\_\\\\___|${NC}"
+  echo ""
+}
+
+get_size() {
+  if [ -d "\$DD_PATH" ]; then
+    du -sh "\$DD_PATH" 2>/dev/null | cut -f1 | xargs
+  else
+    echo "0B"
+  fi
+}
+
+get_count() {
+  if [ -d "\$DD_PATH" ]; then
+    find "\$DD_PATH" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | xargs
+  else
+    echo "0"
+  fi
+}
+
+nuke_all() {
+  local size=\$(get_size)
+  local count=\$(get_count)
+  echo -e "\${RED}Nuking \${count} project caches (\${size})...\${NC}"
+  rm -rf "\${DD_PATH:?}"/*
+  echo -e "\${GREEN}Done. DerivedData is clean.\${NC}"
+}
+
+nuke_previews() {
+  echo -e "\${GOLD}Cleaning preview caches...\${NC}"
+  find "\$DD_PATH" -path "*/Build/Intermediates.noindex/Previews" -type d -exec rm -rf {} + 2>/dev/null || true
+  echo -e "\${GREEN}Preview caches cleared.\${NC}"
+}
+
+nuke_stale() {
+  local days=\${1:-7}
+  local count=\$(find "\$DD_PATH" -maxdepth 1 -mindepth 1 -type d -mtime +\$days 2>/dev/null | wc -l | xargs)
+  echo -e "\${GOLD}Cleaning \${count} caches older than \${days} days...\${NC}"
+  find "\$DD_PATH" -maxdepth 1 -mindepth 1 -type d -mtime +\$days -exec rm -rf {} + 2>/dev/null || true
+  echo -e "\${GREEN}Stale caches removed.\${NC}"
+}
+
+watch_mode() {
+  local interval=\${1:-1800}
+  echo -e "\${GOLD}Watch mode — cleaning stale caches every \$((\$interval / 60)) minutes.\${NC}"
+  echo -e "\${DIM}Press Ctrl+C to stop.\${NC}"
+  while true; do
+    local size=\$(get_size)
+    echo -e "\${DIM}[\$(date '+%H:%M:%S')] DerivedData: \${size} — \$(get_count) projects\${NC}"
+    nuke_stale 3
+    sleep \$interval
+  done
+}
+
+interactive() {
+  banner
+  local size=\$(get_size)
+  local count=\$(get_count)
+  echo -e "  DerivedData: \${GOLD}\${size}\${NC} across \${GOLD}\${count}\${NC} project caches"
+  echo -e "  Location: \${DIM}\${DD_PATH}\${NC}"
+  echo ""
+  echo "  1) Nuke everything"
+  echo "  2) Preview caches only"
+  echo "  3) Stale caches (>7 days)"
+  echo "  4) Watch mode (auto-clean)"
+  echo "  q) Quit"
+  echo ""
+  read -rp "  Choose: " choice
+  case \$choice in
+    1) nuke_all ;;
+    2) nuke_previews ;;
+    3) nuke_stale 7 ;;
+    4) watch_mode ;;
+    q|Q) exit 0 ;;
+    *) echo "Invalid choice." ;;
+  esac
+}
+
+case "\${1:-}" in
+  --nuke)     banner; nuke_all ;;
+  --previews) banner; nuke_previews ;;
+  --stale)    banner; nuke_stale "\${2:-7}" ;;
+  --watch)    banner; watch_mode "\${2:-1800}" ;;
+  --help|-h)
+    echo "Usage: deriveddatanuke.sh [--nuke|--previews|--stale N|--watch [interval]|--help]"
+    ;;
+  *)          interactive ;;
+esac
+`;
+  const blob = new Blob([script], { type: 'text/x-shellscript' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'deriveddatanuke.sh';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Script downloaded — run chmod +x deriveddatanuke.sh to make it executable');
+}
+</script>
+</body>
+</html>
